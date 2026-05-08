@@ -5,7 +5,7 @@ from iflow.dataset import lasa_dataset
 from torch.utils.data import DataLoader
 from iflow import model
 from iflow.trainers import goto_dynamics_train
-from iflow.utils import to_numpy, to_torch
+from iflow.utils import to_numpy, to_torch, makedirs
 from iflow.visualization import visualize_latent_distribution, visualize_vector_field, visualize_2d_generated_trj
 from iflow.test_measures import log_likelihood, iros_evaluation
 
@@ -18,8 +18,9 @@ lr = 0.001
 weight_decay = 0.
 ## training variables ##
 nr_epochs = 1000
+ckpt_every = 25
 ## filename ##
-filename = 'Sshape'
+filename = 'Angle'
 
 ######### GPU/ CPU #############
 #device = torch.device('cuda:' + str(0) if torch.cuda.is_available() else 'cpu')
@@ -54,6 +55,10 @@ if __name__ == '__main__':
     ########## Optimization ################
     params = list(flow.parameters()) + list(dynamics.parameters())
     optimizer = optim.Adamax(params, lr = lr, weight_decay= weight_decay)
+    plot_dir = os.path.join(os.path.dirname(__file__), 'lasa_plots', filename)
+    makedirs(plot_dir)
+    weights_dir = os.path.join(os.path.dirname(__file__), 'lasa_weights')
+    makedirs(weights_dir)
     #######################################
     for i in range(nr_epochs):
         ## Training ##
@@ -65,13 +70,19 @@ if __name__ == '__main__':
             optimizer.step()
 
         ## Validation ##
-        if i%10 == 0:
+        if i % ckpt_every == 0:
             with torch.no_grad():
                 iflow.eval()
 
-                visualize_2d_generated_trj(data.train_data, iflow, device, fig_number=2)
-                visualize_latent_distribution(data.train_data, iflow, device, fig_number=1)
-                visualize_vector_field(data.train_data, iflow, device, fig_number=3)
+                visualize_2d_generated_trj(
+                    data.train_data, iflow, device, fig_number=2,
+                    save_path=os.path.join(plot_dir, 'epoch_{:04d}_traj2d.png'.format(i)))
+                visualize_latent_distribution(
+                    data.train_data, iflow, device, fig_number=1,
+                    save_path=os.path.join(plot_dir, 'epoch_{:04d}_latent.png'.format(i)))
+                visualize_vector_field(
+                    data.train_data, iflow, device, fig_number=3,
+                    save_path=os.path.join(plot_dir, 'epoch_{:04d}_vector_field.png'.format(i)))
                 iros_evaluation(data.train_data, iflow, device)
 
                 ## Prepare Data ##
@@ -83,8 +94,48 @@ if __name__ == '__main__':
                 print('The Variance of the latent dynamics are: {}'.format(torch.exp(iflow.dynamics.log_var)))
                 print('The Velocity of the latent dynamics are: {}'.format(iflow.dynamics.Kv[0,0]))
 
+            ckpt_path = os.path.join(
+                weights_dir,
+                '{}_train{:04d}epochs_epoch{:04d}.pt'.format(filename, nr_epochs, i),
+            )
+            torch.save(
+                {
+                    'shape': filename,
+                    'epoch': i,
+                    'nr_epochs': nr_epochs,
+                    'iflow_state_dict': iflow.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'dim': dim,
+                    'depth': depth,
+                    'lr': lr,
+                    'weight_decay': weight_decay,
+                },
+                ckpt_path,
+            )
+            print('Saved checkpoint: {}'.format(ckpt_path))
 
-
+    last_epoch = nr_epochs - 1
+    if last_epoch % ckpt_every != 0:
+        ckpt_path = os.path.join(
+            weights_dir,
+            '{}_train{:04d}epochs_epoch{:04d}.pt'.format(
+                filename, nr_epochs, last_epoch),
+        )
+        torch.save(
+            {
+                'shape': filename,
+                'epoch': last_epoch,
+                'nr_epochs': nr_epochs,
+                'iflow_state_dict': iflow.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'dim': dim,
+                'depth': depth,
+                'lr': lr,
+                'weight_decay': weight_decay,
+            },
+            ckpt_path,
+        )
+        print('Saved final checkpoint: {}'.format(ckpt_path))
 
 
 

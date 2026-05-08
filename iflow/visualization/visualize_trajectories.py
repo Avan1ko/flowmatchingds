@@ -22,7 +22,7 @@ def visualize_trajectories(val_trajs, iflow, device, fig_number=1):
     plt.pause(0.001)
 
 
-def visualize_2d_generated_trj(val_trj, iflow, device, fig_number=1):
+def visualize_2d_generated_trj(val_trj, iflow, device, fig_number=1, save_path=None):
     n_trj = len(val_trj)
     dim = val_trj[0].shape[-1]
 
@@ -35,6 +35,10 @@ def visualize_2d_generated_trj(val_trj, iflow, device, fig_number=1):
 
         plt.plot(trj_y[:,0], trj_y[:,1], 'g')
         plt.plot(val_trj[i][:,0], val_trj[i][:,1], 'b')
-    plt.draw()
-    plt.pause(0.001)
+    if save_path is not None:
+        fig.savefig(save_path, bbox_inches='tight', dpi=150)
+        plt.close(fig)
+    else:
+        plt.draw()
+        plt.pause(0.001)
 

@@ -1,4 +1,4 @@
-__version__ = '0.0.1'
+from ._version import __version__
 from iflow.utils.typechecks import *
 
 

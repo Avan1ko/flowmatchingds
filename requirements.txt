@@ -3,5 +3,5 @@ torchvision
 torchdiffeq
 scipy
 matplotlib
-sklearn
+scikit-learn
 similaritymeasures

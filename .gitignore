@@ -133,3 +133,12 @@ dmypy.json
 
 # Figures
 *.png
+
+# LASA training artifacts (checkpoints and plot outputs)
+examples/lasa_weights/
+examples/lasa_plots/
+examples/lasa_fm_weights/
+examples/lasa_fm_plots/
+examples/lasa_fm_e2e_weights/
+examples/lasa_fm_e2e_plots/
+examples/lasa_eval/

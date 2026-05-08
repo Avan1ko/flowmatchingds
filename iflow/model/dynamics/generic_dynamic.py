@@ -83,7 +83,7 @@ class DynamicModel(nn.Module):
             for i in range(T - 1):
                 Ad = self.first_Taylor_dyn(_mu) * self.dt + torch.eye(self.dim).to(xti)
                 _mu = self.velocity(_mu) * self.dt + _mu
-                _var = torch.bmm(torch.bmm(Ad, _var), Ad) + self.var * self.dt
+                _var = torch.bmm(torch.bmm(Ad, _var), Ad.transpose(1, 2)) + self.var * self.dt
 
                 tr_mean = torch.cat((tr_mean, _mu[None, ...]))
                 tr_var = torch.cat((tr_var, _var[None, ...]))
@@ -91,7 +91,7 @@ class DynamicModel(nn.Module):
             for i in range(T - 1):
                 Ad = -self.first_Taylor_dyn(_mu) * self.dt + torch.eye(self.dim).to(xti)
                 _mu = -self.velocity(_mu) * self.dt + _mu
-                _var = torch.bmm(torch.bmm(Ad, _var), Ad) + self.var * self.dt
+                _var = torch.bmm(torch.bmm(Ad, _var), Ad.transpose(1, 2)) + self.var * self.dt
 
                 tr_mean = torch.cat((tr_mean, _mu[None, ...]))
                 tr_var = torch.cat((tr_var, _var[None, ...]))
@@ -104,12 +104,12 @@ class DynamicModel(nn.Module):
             for i in range(T):
                 Ad = self.first_Taylor_dyn(_mu) * self.dt + torch.eye(self.dim).to(xti)
                 _mu = self.velocity(_mu) * self.dt + _mu
-                _var = torch.bmm(torch.bmm(Ad, _var), Ad) + self.var * self.dt
+                _var = torch.bmm(torch.bmm(Ad, _var), Ad.transpose(1, 2)) + self.var * self.dt
         else:
             for i in range(T):
                 Ad = -self.first_Taylor_dyn(_mu) * self.dt + torch.eye(self.dim).to(xti)
                 _mu = -self.velocity(_mu) * self.dt + _mu
-                _var = torch.bmm(torch.bmm(Ad, _var), Ad) + self.var * self.dt
+                _var = torch.bmm(torch.bmm(Ad, _var), Ad.transpose(1, 2)) + self.var * self.dt
         return tdist.MultivariateNormal(_mu, _var)
 
 
@@ -206,7 +206,7 @@ class LimitCycleDynamicModel(nn.Module):
             for i in range(T - 1):
                 Ad = self.first_Taylor_dyn(_mu) * self.dt + torch.eye(self.dim).to(xti)
                 _mu = self.velocity(_mu) * self.dt + _mu
-                _var = torch.bmm(torch.bmm(Ad, _var), Ad) + self.var * self.dt
+                _var = torch.bmm(torch.bmm(Ad, _var), Ad.transpose(1, 2)) + self.var * self.dt
 
                 tr_mean = torch.cat((tr_mean, _mu[None, ...]))
                 tr_var = torch.cat((tr_var, _var[None, ...]))
@@ -214,7 +214,7 @@ class LimitCycleDynamicModel(nn.Module):
             for i in range(T - 1):
                 Ad = -self.first_Taylor_dyn(_mu) * self.dt + torch.eye(self.dim).to(xti)
                 _mu = -self.velocity(_mu) * self.dt + _mu
-                _var = torch.bmm(torch.bmm(Ad, _var), Ad) + self.var * self.dt
+                _var = torch.bmm(torch.bmm(Ad, _var), Ad.transpose(1, 2)) + self.var * self.dt
 
                 tr_mean = torch.cat((tr_mean, _mu[None, ...]))
                 tr_var = torch.cat((tr_var, _var[None, ...]))
@@ -230,12 +230,12 @@ class LimitCycleDynamicModel(nn.Module):
             for i in range(T):
                 Ad = self.first_Taylor_dyn(_mu) * self.dt + torch.eye(self.dim).to(xti)
                 _mu = self.velocity(_mu) * self.dt + _mu
-                _var = torch.bmm(torch.bmm(Ad, _var), Ad) + self.var * self.dt
+                _var = torch.bmm(torch.bmm(Ad, _var), Ad.transpose(1, 2)) + self.var * self.dt
         else:
             for i in range(T):
                 Ad = -self.first_Taylor_dyn(_mu) * self.dt + torch.eye(self.dim).to(xti)
                 _mu = -self.velocity(_mu) * self.dt + _mu
-                _var = torch.bmm(torch.bmm(Ad, _var), Ad) + self.var * self.dt
+                _var = torch.bmm(torch.bmm(Ad, _var), Ad.transpose(1, 2)) + self.var * self.dt
 
         dists = []
         dist_r = tdist.Normal(loc=_mu[:,0], scale=torch.sqrt(_var[:,0,0]))

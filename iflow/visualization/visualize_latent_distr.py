@@ -4,7 +4,7 @@ from iflow.utils.generic import to_numpy, to_torch
 import matplotlib.pyplot as plt
 
 
-def visualize_latent_distribution(val_trj, iflow, device, fig_number=1):
+def visualize_latent_distribution(val_trj, iflow, device, fig_number=1, save_path=None):
     n_trj = len(val_trj)
     dim = val_trj[0].shape[-1]
     ## Store the latent trajectory in a list ##
@@ -32,87 +32,98 @@ def visualize_latent_distribution(val_trj, iflow, device, fig_number=1):
             h_trj = val_mu_trj[i][:,0,j]  + np.sqrt(val_var_trj[i][:,0, j, j] )
             axs[j].fill_between(t,l_trj, h_trj, alpha=0.1)
 
-    plt.draw()
-    plt.pause(0.001)
+    if save_path is not None:
+        fig.savefig(save_path, bbox_inches='tight', dpi=150)
+        plt.close(fig)
+    else:
+        plt.draw()
+        plt.pause(0.001)
 
 
-def visualize_vector_field(val_trj, iflow, device, fig_number=1):
+def _compute_vector_field(val_trj, iflow, device, n_grid=25, margin=0.5):
     _trajs = np.zeros((0, 2))
     for trj in val_trj:
-        _trajs = np.concatenate((_trajs, trj),0)
-    min = _trajs.min(0) - 0.5
-    max = _trajs.max(0) + 0.5
+        _trajs = np.concatenate((_trajs, trj), 0)
+    lo = _trajs.min(0) - margin
+    hi = _trajs.max(0) + margin
 
-    n_sample = 100
+    x = np.linspace(lo[0], hi[0], n_grid)
+    y = np.linspace(lo[1], hi[1], n_grid)
+    xx, yy = np.meshgrid(x, y)
 
-    x = np.linspace(min[0], max[0], n_sample)
-    y = np.linspace(min[1], max[1], n_sample)
-
-    xy = np.meshgrid(x, y)
-    h = np.concatenate(xy[0])
-    v = np.concatenate(xy[1])
-    hv = torch.Tensor(np.stack([h, v]).T).float()
+    hv = torch.tensor(
+        np.stack([xx.ravel(), yy.ravel()], axis=1), dtype=torch.float32
+    )
     if device is not None:
         hv = hv.to(device)
 
     hv_t1 = iflow.evolve(hv, T=3)
-    hv = hv.detach().cpu().numpy()
+    hv_np = hv.detach().cpu().numpy()
     hv_t1 = hv_t1.detach().cpu().numpy()
 
-    vel = (hv_t1 - hv)
+    vel = hv_t1 - hv_np
+    vel_x = vel[:, 0].reshape(n_grid, n_grid)
+    vel_y = vel[:, 1].reshape(n_grid, n_grid)
+    return xx, yy, vel_x, vel_y
 
-    vel_x = np.reshape(vel[:, 0], (n_sample, n_sample))
-    vel_y = np.reshape(vel[:, 1], (n_sample, n_sample))
+
+def _plot_quiver(xx, yy, vel_x, vel_y, val_trj, fig_number):
     speed = np.sqrt(vel_x ** 2 + vel_y ** 2)
-    speed = speed/np.max(speed)
+    max_speed = float(speed.max()) if speed.size else 1.0
+    if max_speed < 1e-12:
+        max_speed = 1.0
+
+    nx_x = vel_x / max_speed
+    nx_y = vel_y / max_speed
 
     fig = plt.figure(fig_number, figsize=(10, 10))
     plt.clf()
     ax = plt.gca()
 
-    plt.streamplot(xy[0], xy[1], vel_x, vel_y, color=speed, density=[0.5, 1])
+    q = ax.quiver(
+        xx,
+        yy,
+        nx_x,
+        nx_y,
+        speed,
+        cmap="viridis",
+        pivot="middle",
+        angles="xy",
+        scale_units="xy",
+        scale=1.0 / (0.9 * (xx[0, 1] - xx[0, 0])),
+        width=0.003,
+    )
+    fig.colorbar(q, ax=ax, fraction=0.04, pad=0.02, label="speed")
+
     for i in range(len(val_trj)):
-        plt.plot(val_trj[i][:,0], val_trj[i][:,1], 'b')
-    plt.draw()
-    plt.pause(0.05)
+        ax.plot(val_trj[i][:, 0], val_trj[i][:, 1], "b", linewidth=1.5)
+
+    ax.set_xlim(xx.min(), xx.max())
+    ax.set_ylim(yy.min(), yy.max())
+    ax.set_aspect("equal", adjustable="box")
+    return fig
 
 
-def save_vector_field(val_trj, iflow, device, save_fig, fig_number=1):
-    _trajs = np.zeros((0, 2))
-    for trj in val_trj:
-        _trajs = np.concatenate((_trajs, trj),0)
-    min = _trajs.min(0) - 0.5
-    max = _trajs.max(0) + 0.5
+def visualize_vector_field(
+    val_trj, iflow, device, fig_number=1, save_path=None, n_grid=25
+):
+    xx, yy, vel_x, vel_y = _compute_vector_field(
+        val_trj, iflow, device, n_grid=n_grid
+    )
+    fig = _plot_quiver(xx, yy, vel_x, vel_y, val_trj, fig_number)
 
-    n_sample = 100
+    if save_path is not None:
+        fig.savefig(save_path, bbox_inches="tight", dpi=150)
+        plt.close(fig)
+    else:
+        plt.draw()
+        plt.pause(0.05)
 
-    x = np.linspace(min[0], max[0], n_sample)
-    y = np.linspace(min[1], max[1], n_sample)
 
-    xy = np.meshgrid(x, y)
-    h = np.concatenate(xy[0])
-    v = np.concatenate(xy[1])
-    hv = torch.Tensor(np.stack([h, v]).T).float()
-    if device is not None:
-        hv = hv.to(device)
-
-    hv_t1 = iflow.evolve(hv, T=3)
-    hv = hv.detach().cpu().numpy()
-    hv_t1 = hv_t1.detach().cpu().numpy()
-
-    vel = (hv_t1 - hv)
-
-    vel_x = np.reshape(vel[:, 0], (n_sample, n_sample))
-    vel_y = np.reshape(vel[:, 1], (n_sample, n_sample))
-    speed = np.sqrt(vel_x ** 2 + vel_y ** 2)
-    speed = speed/np.max(speed)
-
-    fig = plt.figure(fig_number, figsize=(10, 10))
-    plt.clf()
-    ax = plt.gca()
-
-    plt.streamplot(xy[0], xy[1], vel_x, vel_y, color=speed, density=[0.5, 1])
-    for i in range(len(val_trj)):
-        plt.plot(val_trj[i][:,0], val_trj[i][:,1], 'b')
-
-    plt.savefig(save_fig)
+def save_vector_field(val_trj, iflow, device, save_fig, fig_number=1, n_grid=25):
+    xx, yy, vel_x, vel_y = _compute_vector_field(
+        val_trj, iflow, device, n_grid=n_grid
+    )
+    fig = _plot_quiver(xx, yy, vel_x, vel_y, val_trj, fig_number)
+    fig.savefig(save_fig, bbox_inches="tight", dpi=150)
+    plt.close(fig)
