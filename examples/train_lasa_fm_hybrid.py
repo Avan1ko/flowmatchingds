@@ -3,9 +3,9 @@ Decoupled Flow-Matching + Stable Linear SDE training on LASA 2D.
 
 Single-script "hybrid" runner that performs Phase A (Conditional Flow Matching
 + temporal regularization), Phase B (latent inversion of all expert points),
-and Phase C (stable linear SDE regression) inside one outer loop. After each
-macro-epoch the script saves a checkpoint and LASA visualizers every 10
-macro-epochs (interval set by ``--save-every``, and on the last macro-epoch).
+and Phase C (stable linear SDE regression) inside one outer loop. Checkpoints
+and LASA visualizers are saved every ``--save-every`` macro-epochs (and on the
+last macro-epoch).
 """
 import argparse
 import os
