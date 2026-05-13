@@ -9,6 +9,7 @@ last macro-epoch).
 """
 import argparse
 import os
+import time
 
 import numpy as np
 import torch
@@ -32,9 +33,9 @@ from iflow.visualization import (
 
 def parse_args():
     p = argparse.ArgumentParser(description="Decoupled FM + stable SDE on LASA")
-    p.add_argument("--shape", type=str, default="Bump")
+    p.add_argument("--shape", type=str, default="Angle")
     p.add_argument("--device", type=str, default="cpu", choices=("cpu", "cuda"))
-    p.add_argument("--macro-epochs", type=int, default=400)
+    p.add_argument("--macro-epochs", type=int, default=35)
     p.add_argument("--phase-a-iters", type=int, default=400)
     p.add_argument("--phase-c-iters", type=int, default=200)
     p.add_argument("--fm-batch", type=int, default=512)
@@ -44,7 +45,7 @@ def parse_args():
     p.add_argument("--lambda-reg", type=float, default=0.1)
     p.add_argument("--lambda-warmup", type=int, default=2,
                    help="Macro-epochs with lambda_reg=0 before ramping in")
-    p.add_argument("--dt", type=float, default=0.01)
+    p.add_argument("--dt", type=float, default=0.03)
     p.add_argument("--lr-spatial", type=float, default=1e-3)
     p.add_argument("--lr-sde", type=float, default=1e-2)
     p.add_argument("--hidden", type=str, default="64-64-64")
@@ -53,26 +54,92 @@ def parse_args():
     p.add_argument(
         "--save-every",
         type=int,
-        default=25,
+        default=10,
         help="Save checkpoints and plots every N macro-epochs (and always on the last)",
     )
     return p.parse_args()
 
 
 def build_models(dim, hidden_dims, dt, device):
-    velocity_net = model.SpatialVelocityNet(dim=dim, hidden_dims=hidden_dims, layer_type="concat", nonlinearity="tanh")
-    spatial_ode = model.NeuralODEFlow(velocity_net=velocity_net, train_solver="euler", train_solver_steps=20)
+    velocity_net = model.SpatialVelocityNet(dim=dim, hidden_dims=hidden_dims, layer_type="concat", nonlinearity="elu")
+    spatial_ode = model.NeuralODEFlow(velocity_net=velocity_net, train_solver="euler", train_solver_steps=50)
     dummy = model.DummyLinearPredictor(dim=dim, init_diag=-1.0)
     sde = model.StableLinearSDE(dim=dim, dt=dt)
+
+    sde.predict_increment = lambda z, dt_val: (
+        sde(z)[0] if isinstance(sde(z), (tuple, list)) else sde(z)
+    ) * dt_val
 
     spatial_ode.to(device)
     dummy.to(device)
     sde.to(device)
     return spatial_ode, dummy, sde
 
+def compute_final_metrics(expert_trajectories, model, device, threshold=0.5):
+    """
+    Calculates reproduction and stability metrics at the end of training.
+    """
+    mse_list, dtw_list, jerk_list = [], [], []
+    success_count = 0
+    
+    def simple_dtw(s1, s2):
+        """Basic O(N^2) DTW implementation for trajectory comparison."""
+        n, m = len(s1), len(s2)
+        cost_mat = np.zeros((n + 1, m + 1))
+        cost_mat[1:, 0], cost_mat[0, 1:] = np.inf, np.inf
+        for i in range(1, n + 1):
+            for j in range(1, m + 1):
+                dist = np.linalg.norm(s1[i-1] - s2[j-1])
+                cost_mat[i, j] = dist + min(cost_mat[i-1, j], cost_mat[i, j-1], cost_mat[i-1, j-1])
+        return cost_mat[n, m]
+
+    print("\n--- Final Performance Metrics ---")
+    for i, expert in enumerate(expert_trajectories):
+        expert_np = np.asarray(expert)
+        y0 = torch.from_numpy(expert_np[0:1]).float().to(device)
+        goal_true = expert_np[-1]
+        
+        with torch.no_grad():
+            # Generate a trajectory of the same length as the expert
+            gen_trj = model.generate_trj(y0, T=len(expert_np)).cpu().numpy()
+        
+        # 1. Root Mean Squared Error
+        mse = np.sqrt(np.mean(np.linalg.norm(expert_np - gen_trj, axis=1)**2))
+        mse_list.append(mse)
+        
+        # 2. Dynamic Time Warping (DTW)
+        dtw_val = simple_dtw(expert_np, gen_trj)
+        dtw_list.append(dtw_val)
+        
+        # 3. Success Rate (Distance to Goal)
+        final_dist = np.linalg.norm(gen_trj[-1] - goal_true)
+        if final_dist < threshold:
+            success_count += 1
+            
+        # 4. Smoothness: Mean Jerk (Third derivative)
+        # Calculated via finite differences: jerk = d^3x / dt^3
+        vel = np.diff(gen_trj, axis=0)
+        acc = np.diff(vel, axis=0)
+        jerk = np.diff(acc, axis=0)
+        mean_jerk = np.mean(np.linalg.norm(jerk, axis=1))
+        jerk_list.append(mean_jerk)
+
+    results = {
+        "Avg RMSE": np.mean(mse_list),
+        "Avg DTW": np.mean(dtw_list),
+        "Success Rate": (success_count / len(expert_trajectories)) * 100,
+        "Mean Jerk": np.mean(jerk_list)
+    }
+    
+    for k, v in results.items():
+        print(f"{k:15}: {v:.4f}")
+    return results
 
 def main():
     args = parse_args()
+
+    start_train_time = time.time()
+    epoch_times = []
 
     device = torch.device("cuda" if args.device == "cuda" and torch.cuda.is_available() else "cpu")
     if args.device == "cuda" and not torch.cuda.is_available():
@@ -101,8 +168,14 @@ def main():
     makedirs(plot_dir)
     makedirs(weights_dir)
 
+    goals_x = []
+    for tr in data.train_data:
+        goals_x.append(tr[-1:])
+    goals_x = torch.from_numpy(np.concatenate(goals_x, axis=0)).float().to(device)
+
     global_step = 0
     for macro_epoch in range(args.macro_epochs):
+        epoch_start = time.time()
         if macro_epoch < args.lambda_warmup:
             current_lambda = 0.0
         else:
@@ -127,6 +200,23 @@ def main():
                 step_idx=it,
                 reg_every_k=args.reg_every_k,
             )
+            #Using Vector Field (No ODE Solver needed)
+            t_anchor = torch.rand(goals_x.shape[0], 1).to(device)
+            x_t_anchor = t_anchor * goals_x
+            u_t_anchor = goals_x
+            v_pred_anchor = spatial_ode.velocity_net(t_anchor, x_t_anchor)
+            loss_goal = torch.nn.functional.mse_loss(v_pred_anchor, u_t_anchor)
+            
+            #Using MSE (Solving ODE)
+            # z_goals = spatial_ode.encode(goals_x)
+            # loss_goal = torch.nn.functional.mse_loss(z_goals, torch.zeros_like(z_goals))
+            lambda_goal = 1.0
+            total_goal_loss = lambda_goal * loss_goal
+            total_goal_loss.backward()
+            optim_a.step()
+            optim_a.zero_grad()
+
+            running["loss_goal"] = running.get("loss_goal", 0.0) + loss_goal.item()
             running["loss"] += stats["loss"]
             running["loss_fm"] += stats["loss_fm"]
             if stats["loss_reg"] is not None:
@@ -183,7 +273,7 @@ def main():
                     save_path=os.path.join(plot_dir, "macro_{:04d}_latent.png".format(macro_epoch)),
                 )
                 visualize_vector_field(
-                    data.train_data, composite, device, fig_number=3,
+                    data.train_data, composite, device, fig_number=3, 
                     save_path=os.path.join(plot_dir, "macro_{:04d}_vector_field.png".format(macro_epoch)),
                 )
 
@@ -204,6 +294,14 @@ def main():
                 ckpt_path,
             )
             print("Saved checkpoint: {}".format(ckpt_path))
+    total_train_time = time.time() - start_train_time
+    # avg_epoch_time = sum(epoch_times) / len(epoch_times)
+    print("\nTraining complete. Running final evaluation...")
+    print(f"Total Training Time: {total_train_time:.2f} seconds")
+    # print(f"Average Macro-Epoch Time: {avg_epoch_time:.2f} seconds")
+    composite.eval()
+    final_metrics = compute_final_metrics(data.train_data, composite, device)
+
 
 
 if __name__ == "__main__":

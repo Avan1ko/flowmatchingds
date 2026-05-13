@@ -80,20 +80,20 @@ def _plot_quiver(xx, yy, vel_x, vel_y, val_trj, fig_number):
     plt.clf()
     ax = plt.gca()
 
+    r = np.power(np.add(np.power(nx_x,2), np.power(nx_y,2)),0.5)
+
     q = ax.quiver(
         xx,
         yy,
-        nx_x,
-        nx_y,
-        speed,
-        cmap="viridis",
+        nx_x/r,
+        nx_y/r,
         pivot="middle",
         angles="xy",
         scale_units="xy",
         scale=1.0 / (0.9 * (xx[0, 1] - xx[0, 0])),
         width=0.003,
     )
-    fig.colorbar(q, ax=ax, fraction=0.04, pad=0.02, label="speed")
+    # fig.colorbar(q, ax=ax, fraction=0.04, pad=0.02, label="speed")
 
     for i in range(len(val_trj)):
         ax.plot(val_trj[i][:, 0], val_trj[i][:, 1], "b", linewidth=1.5)

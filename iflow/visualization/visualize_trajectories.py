@@ -25,13 +25,19 @@ def visualize_trajectories(val_trajs, iflow, device, fig_number=1):
 def visualize_2d_generated_trj(val_trj, iflow, device, fig_number=1, save_path=None):
     n_trj = len(val_trj)
     dim = val_trj[0].shape[-1]
-
+    # print("val_trj:")
+    # print(val_trj)
+    # print("len val_trj:")
+    # print(len(val_trj[0]))
     plt.figure(fig_number).clf()
     fig = plt.figure(figsize=(15, 15), num=fig_number)
     for i in range(len(val_trj)):
+        # print(val_trj)
         y_0 = torch.from_numpy(val_trj[i][:1, :]).float().to(device)
         trj_y = iflow.generate_trj(y_0, T=val_trj[i].shape[0])
         trj_y = trj_y.detach().cpu().numpy()
+        # print("len gen traj:")
+        # print(len(trj_y))
 
         plt.plot(trj_y[:,0], trj_y[:,1], 'g')
         plt.plot(val_trj[i][:,0], val_trj[i][:,1], 'b')

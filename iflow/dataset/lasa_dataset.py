@@ -18,10 +18,16 @@ class LASA():
         mat = spio.loadmat(directory + filename + '.mat', squeeze_me=True)
         self.trajs_real=[]
         for demo_i in mat['demos']:
-            x = demo_i[0]
-            y = demo_i[1]
-            tr_i = np.stack((x,y))
-            self.trajs_real.append(tr_i.T)
+            print(f"Type of demo_i: {type(demo_i)}, Shape: {getattr(demo_i, 'shape', 'No Shape')}")
+            #For iFlow Datasets
+            # x = demo_i[0]
+            # y = demo_i[1]
+            # tr_i = np.stack((x,y))
+            # self.trajs_real.append(tr_i.T)
+
+            #For MEAM 6320 Datasets
+            pos = demo_i['pos'].item().T.astype(np.float32)
+            self.trajs_real.append(pos)
         trajs_np = np.asarray(self.trajs_real)
         self.n_trajs = trajs_np.shape[0]
         self.trj_length = trajs_np.shape[1]

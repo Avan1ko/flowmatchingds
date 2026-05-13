@@ -34,14 +34,14 @@ class DecoupledFMImitationFlow(nn.Module):
         zero_logdet = torch.zeros(z.shape[0], 1, dtype=z.dtype, device=z.device)
         return z, zero_logdet
 
-    def generate_trj(self, y0, T=100, noise=False, reverse=False):
+    def generate_trj(self, y0, T=200, noise=False, reverse=False):
         z0 = self.encode(y0)
         trj_z = self.dynamics.generate_trj(z0, T=T, reverse=reverse, noise=noise)
         z_states = trj_z[:, 0, :] if trj_z.dim() == 3 else trj_z
         trj_y = self.decode(z_states)
         return trj_y
 
-    def evolve(self, y0, T=100, noise=False, reverse=False):
+    def evolve(self, y0, T=200, noise=False, reverse=False):
         z0 = self.encode(y0)
         z1 = self.dynamics.evolve(z0, T=T, reverse=reverse, noise=noise)
         y1 = self.decode(z1)
