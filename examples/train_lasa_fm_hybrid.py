@@ -30,12 +30,14 @@ from iflow.visualization import (
     visualize_vector_field,
 )
 
+from iflow.test_measures import iros_evaluation
+
 
 def parse_args():
     p = argparse.ArgumentParser(description="Decoupled FM + stable SDE on LASA")
-    p.add_argument("--shape", type=str, default="Angle")
+    p.add_argument("--shape", type=str, default="LShape")
     p.add_argument("--device", type=str, default="cpu", choices=("cpu", "cuda"))
-    p.add_argument("--macro-epochs", type=int, default=35)
+    p.add_argument("--macro-epochs", type=int, default=50)
     p.add_argument("--phase-a-iters", type=int, default=400)
     p.add_argument("--phase-c-iters", type=int, default=200)
     p.add_argument("--fm-batch", type=int, default=512)
@@ -54,7 +56,7 @@ def parse_args():
     p.add_argument(
         "--save-every",
         type=int,
-        default=10,
+        default=25,
         help="Save checkpoints and plots every N macro-epochs (and always on the last)",
     )
     return p.parse_args()
@@ -75,65 +77,7 @@ def build_models(dim, hidden_dims, dt, device):
     sde.to(device)
     return spatial_ode, dummy, sde
 
-def compute_final_metrics(expert_trajectories, model, device, threshold=0.5):
-    """
-    Calculates reproduction and stability metrics at the end of training.
-    """
-    mse_list, dtw_list, jerk_list = [], [], []
-    success_count = 0
-    
-    def simple_dtw(s1, s2):
-        """Basic O(N^2) DTW implementation for trajectory comparison."""
-        n, m = len(s1), len(s2)
-        cost_mat = np.zeros((n + 1, m + 1))
-        cost_mat[1:, 0], cost_mat[0, 1:] = np.inf, np.inf
-        for i in range(1, n + 1):
-            for j in range(1, m + 1):
-                dist = np.linalg.norm(s1[i-1] - s2[j-1])
-                cost_mat[i, j] = dist + min(cost_mat[i-1, j], cost_mat[i, j-1], cost_mat[i-1, j-1])
-        return cost_mat[n, m]
 
-    print("\n--- Final Performance Metrics ---")
-    for i, expert in enumerate(expert_trajectories):
-        expert_np = np.asarray(expert)
-        y0 = torch.from_numpy(expert_np[0:1]).float().to(device)
-        goal_true = expert_np[-1]
-        
-        with torch.no_grad():
-            # Generate a trajectory of the same length as the expert
-            gen_trj = model.generate_trj(y0, T=len(expert_np)).cpu().numpy()
-        
-        # 1. Root Mean Squared Error
-        mse = np.sqrt(np.mean(np.linalg.norm(expert_np - gen_trj, axis=1)**2))
-        mse_list.append(mse)
-        
-        # 2. Dynamic Time Warping (DTW)
-        dtw_val = simple_dtw(expert_np, gen_trj)
-        dtw_list.append(dtw_val)
-        
-        # 3. Success Rate (Distance to Goal)
-        final_dist = np.linalg.norm(gen_trj[-1] - goal_true)
-        if final_dist < threshold:
-            success_count += 1
-            
-        # 4. Smoothness: Mean Jerk (Third derivative)
-        # Calculated via finite differences: jerk = d^3x / dt^3
-        vel = np.diff(gen_trj, axis=0)
-        acc = np.diff(vel, axis=0)
-        jerk = np.diff(acc, axis=0)
-        mean_jerk = np.mean(np.linalg.norm(jerk, axis=1))
-        jerk_list.append(mean_jerk)
-
-    results = {
-        "Avg RMSE": np.mean(mse_list),
-        "Avg DTW": np.mean(dtw_list),
-        "Success Rate": (success_count / len(expert_trajectories)) * 100,
-        "Mean Jerk": np.mean(jerk_list)
-    }
-    
-    for k, v in results.items():
-        print(f"{k:15}: {v:.4f}")
-    return results
 
 def main():
     args = parse_args()
@@ -277,6 +221,9 @@ def main():
                     save_path=os.path.join(plot_dir, "macro_{:04d}_vector_field.png".format(macro_epoch)),
                 )
 
+                iros_evaluation(data.train_data, composite, device)
+
+
             ckpt_path = os.path.join(weights_dir, "{}_macro{:04d}.pt".format(args.out_name, macro_epoch))
             torch.save(
                 {
@@ -300,7 +247,8 @@ def main():
     print(f"Total Training Time: {total_train_time:.2f} seconds")
     # print(f"Average Macro-Epoch Time: {avg_epoch_time:.2f} seconds")
     composite.eval()
-    final_metrics = compute_final_metrics(data.train_data, composite, device)
+    iros_evaluation(data.train_data, composite, device)
+
 
 
 

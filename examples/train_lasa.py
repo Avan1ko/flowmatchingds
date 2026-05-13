@@ -17,10 +17,10 @@ depth = 10
 lr = 0.001
 weight_decay = 0.
 ## training variables ##
-nr_epochs = 1000
+nr_epochs = 51
 ckpt_every = 25
 ## filename ##
-filename = 'Angle'
+filename = 'LShape'
 
 ######### GPU/ CPU #############
 #device = torch.device('cuda:' + str(0) if torch.cuda.is_available() else 'cpu')
@@ -39,66 +39,6 @@ def create_flow_seq(dim, depth):
         chain.append(model.LULinear(dim))
     chain.append(main_layer(dim))
     return model.SequentialFlow(chain)
-
-def compute_final_metrics(expert_trajectories, model, device, training_time, threshold=0.1):
-    mse_list, dtw_list, jerk_list = [], [], []
-    success_count = 0
-    
-    def simple_dtw(s1, s2):
-        n, m = len(s1), len(s2)
-        cost_mat = np.zeros((n + 1, m + 1))
-        cost_mat[1:, 0], cost_mat[0, 1:] = np.inf, np.inf
-        for i in range(1, n + 1):
-            for j in range(1, m + 1):
-                dist = np.linalg.norm(s1[i-1] - s2[j-1])
-                cost_mat[i, j] = dist + min(cost_mat[i-1, j], cost_mat[i, j-1], cost_mat[i-1, j-1])
-        return cost_mat[n, m]
-
-    print("\n" + "="*30)
-    print("FINAL EVALUATION METRICS")
-    print("="*30)
-    
-    start_inf = time.time()
-    for expert in expert_trajectories:
-        expert_np = np.asarray(expert)
-        y0 = to_torch(expert_np[0:1], device)
-        
-        with torch.no_grad():
-            # Standard generate_trj usually returns a full path
-            gen_trj = model.generate_trj(y0, T=len(expert_np))
-            gen_trj = to_numpy(gen_trj).squeeze()
-        
-        # RMSE
-        mse = np.sqrt(np.mean(np.linalg.norm(expert_np - gen_trj, axis=1)**2))
-        mse_list.append(mse)
-        
-        # DTW
-        dtw_list.append(simple_dtw(expert_np, gen_trj))
-        
-        # Success (Reaching the expert's goal)
-        final_dist = np.linalg.norm(gen_trj[-1] - expert_np[-1])
-        if final_dist < threshold:
-            success_count += 1
-            
-        # Smoothness: Mean Jerk
-        # Calculated via finite difference: jerk ≈ Δ³x / Δt³
-        jerk = np.diff(gen_trj, n=3, axis=0)
-        jerk_list.append(np.mean(np.linalg.norm(jerk, axis=1)))
-
-    inf_time = (time.time() - start_inf) / len(expert_trajectories)
-
-    results = {
-        "Total Train Time (s)": training_time,
-        "Inference Time/Trj (s)": inf_time,
-        "Avg RMSE": np.mean(mse_list),
-        "Avg DTW": np.mean(dtw_list),
-        "Success Rate (%)": (success_count / len(expert_trajectories)) * 100,
-        "Mean Jerk (Smoothness)": np.mean(jerk_list)
-    }
-    
-    for k, v in results.items():
-        print(f"{k:25}: {v:.4f}")
-    return results
 
 if __name__ == '__main__':
     start_train_time = time.time()
@@ -196,16 +136,11 @@ if __name__ == '__main__':
             ckpt_path,
         )
         print('Saved final checkpoint: {}'.format(ckpt_path))
-
+    print("Total Train Time")
     total_train_time = time.time() - start_train_time
-    print("\nTraining complete. Running final evaluation...")
-    iflow.eval()
-    final_metrics = compute_final_metrics(
-        data.train_data, 
-        iflow, 
-        device, 
-        total_train_time
-    )
+    print(total_train_time)
+    iros_evaluation(data.train_data, iflow, device)
+
 
 
 
